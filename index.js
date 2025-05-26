@@ -15,6 +15,10 @@ const User = require("./userModel")
 
 const Course = require("./courseModel")
 
+const Enrollment = require("./enrollModel")
+
+const authenticateUser = require("./middleWare")
+
 const app = express()
 
 app.use(express.json())
@@ -152,6 +156,179 @@ app.post("/login", async (req, res) =>{
     })
 })
 
+
+// POST: Add a new course (only for instructors)
+
+app.post('/add-courses', authenticateUser, async (req, res) => {
+  try {
+    const { courseTitle, description, category, lessons, thumbnailUrl, price } = req.body
+
+    // Ensure only instructors can add courses
+    if (req.user.role !== 'instructor') {
+      return res.status(403).json({ 
+        message: 'Access denied: Only instructors can add courses' 
+    })
+    }
+
+    // Create new course
+    const newCourse = new Course({
+      courseTitle,
+      description,
+      category,
+      lessons,
+      thumbnailUrl,
+      price,
+      createdBy: req.user.id, // From token
+      isPublished: true // Optional: Set to false if you want manual publish
+    })
+
+    await newCourse.save();
+
+    res.status(201).json({
+      message: 'Course added successfully',
+      course: newCourse
+    })
+
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error adding course',
+      error: error.message
+    })
+  }
+})
+
+// GET all available courses
+app.get('/all-courses', async (req, res) => {
+  try {
+    const courses = await Course.find({ isPublished: true }).select(
+      '_id courseTitle description category price thumbnailUrl'
+    )
+
+    res.status(200).json({
+      message: 'Available courses fetched successfully',
+      courses,
+    })
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching courses',
+      error: error.message,
+    })
+  }
+})
+
+
+// Enroll student in a course
+app.post("/enroll/:courseId", async (req, res) => {
+  try {
+    const userId = req.user._id
+    const role = req.user.role
+    const { courseId } = req.params
+
+    if (role !== 'user') {
+      return res.status(403).json({ 
+        message: 'Only students can enroll'
+     })
+    }
+
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ 
+        message: 'Course not found' 
+    })
+    }
+
+    const existingEnrollment = await Enrollment.findOne({ user: userId, course: courseId });
+    if (existingEnrollment) {
+      return res.status(400).json({ 
+        message: 'Already enrolled' 
+    })
+    }
+
+    const enrollment = new Enrollment({ user: userId, course: courseId })
+
+    await enrollment.save()
+
+    res.status(200).json({ 
+        message: 'Enrollment successful', 
+        enrollment 
+    })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+})
+
+
+// View students enrolled in a course (Instructor only)
+
+app.get('/course/:courseId/enrollments', async (req, res) => {
+  try {
+    const instructorId = req.user._id
+    const role = req.user.role
+    const { courseId } = req.params
+
+    if (role !== 'instructor') {
+      return res.status(403).json({ 
+        message: 'Only instructors can view enrollments' 
+    })
+    }
+
+    const course = await Course.findById(courseId)
+    if (!course || course.instructor.toString() !== instructorId.toString()) {
+      return res.status(403).json({
+        message: 'Not authorized to view enrollments for this course' 
+    })
+    }
+
+    const enrollments = await Enrollment.find({ course: courseId }).populate('user', 'firstName lastName email')
+
+    res.status(200).json({ user: enrollments });
+  } catch (error) {
+    res.status(500).json({
+         message: error.message
+         })
+  }
+})
+
+
+app.get('/courses/category/:categoryName', async (req, res) => {
+  try {
+    const { categoryName } = req.params;
+
+    // Validate category (optional)
+    const validCategories = [
+      'Programming',
+      'Video Editing',
+      'Cathering',
+      'Baking',
+      'Language',
+      'Public Speaking',
+      'Other'
+    ];
+
+    if (!validCategories.includes(categoryName)) {
+      return res.status(400).json({ 
+        message: 'Invalid course category'
+     })
+    }
+
+    // Fetch courses in the specified category
+    const courses = await Course.find({
+      category: categoryName,
+      isPublished: true
+    }).select('courseTitle description category thumbnailUrl price')
+
+    res.status(200).json({
+      message: `Courses in category: ${categoryName}`,
+      total: courses.length,
+      courses
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching courses by category',
+      error: error.message
+    })
+  }
+})
 
 
 // Middleware to protect routes
