@@ -17,7 +17,11 @@ const Course = require("./courseModel")
 
 const Enrollment = require("./enrollModel")
 
-const authenticateUser = require("./middleWare")
+//const authenticateUser = require("./middleWare")
+
+const { sendForgotPasswordEmail, sendSignUpVerificationEmail } = require("./sendMail")
+
+const { validateRegistration, authenticateUser } = require("./middleWare")
 
 const app = express()
 
@@ -38,7 +42,7 @@ mongoose.connect(process.env.MONGODB_URL)
 
 //user's sign-up or registration API
 
-app.post("/sign-up", async (req, res) => {
+app.post("/sign-up", validateRegistration, async (req, res) => {
 
     try{
         const {email, password, firstName, lastName, role} = req.body
@@ -80,8 +84,7 @@ app.post("/sign-up", async (req, res) => {
         })
 
         await newUser.save()
-
-        //Send the user an email
+        await sendSignUpVerificationEmail(newUser)//Send the user an email
 
         res.status(201).json({
             message: "User account created successfully",
@@ -156,10 +159,95 @@ app.post("/login", async (req, res) =>{
     })
 })
 
+app.post("/forgot-password", async (req, res) => {
+     try{
+
+     const {email} = req.body
+
+    // const {email, userName} = req.body
+
+    // let user
+
+    // if(email){
+    //     const user = await Auth.findOne({email})
+    // }
+
+    //   if(userName){
+    //     const user = await Auth.findOne({userName})
+    // }
+  
+
+    const user = await Auth.findOne({email})
+
+
+
+    if(!user) {
+        res.status(404).json({
+            message: "User not found"
+        })
+    }
+
+    //In case where the email matches with the user, that is , user exist, then an email with the Token or OTP is sent to them 
+    const accessToken = await jwt.sign(
+        {user},
+        process.env.ACCESS_TOKEN,
+        {expiresIn:"5m"}
+
+    )
+
+    await sendForgotPasswordEmail(email, accessToken)
+
+    res.status(200).json({
+        message: "Please check your email inbox"
+    })
+}catch (error) {
+        res.status(500).json({
+            message: error.message
+        })
+
+    }
+})
+
+
+
+
+app.patch("/reset-password", authenticateUser, async (req, res) => {
+
+    try{
+
+    const {email, password} = req.body
+
+    const user = await Auth.findOne({email: req.body.email})
+
+    if(!user){
+        res.status(404).json({
+            message:"User not found"
+        })
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12)
+
+    user.password = hashedPassword
+
+    await user.save()
+
+    res.status(200).json({
+        message:"Password reset successful"
+    })
+
+}catch (error) {
+        res.status(500).json({
+            message: error.message
+        })
+
+    }
+
+})
+
 
 // POST: Add a new course (only for instructors)
 
-app.post('/add-courses', authenticateUser, async (req, res) => {
+app.post('/add-courses', async (req, res) => {
   try {
     const { courseTitle, description, category, lessons, thumbnailUrl, price } = req.body
 
@@ -211,7 +299,7 @@ app.get('/all-courses', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       message: 'Error fetching courses',
-      error: error.message,
+      error: error.message
     })
   }
 })
@@ -328,6 +416,28 @@ app.get('/courses/category/:categoryName', async (req, res) => {
       error: error.message
     })
   }
+})
+
+
+app.get("/all-users", authenticateUser, async (req, res) => {
+
+    try{
+
+    //console.log(req.user)
+    
+    const allUsers = await Auth.find()
+
+    res.status(200).json({
+        message: "Successful",
+        allUsers
+    })
+
+} catch (error) {
+        res.status(500).json({
+            message: "Server error",
+            error: error.message
+        })
+    }
 })
 
 
