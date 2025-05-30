@@ -11,7 +11,8 @@ const courseSchema = new mongoose.Schema({
   lessons: [{title: String, content: String,videoUrl: String, quiz: [{question: String, options: [String], correctAnswer: String }]}],
   thumbnailUrl: {type: String, default: '' },
   price: {type: Number, default: 0},
-  isPublished: {type: Boolean, default: false}
+  isPublished: {type: Boolean, default: false},
+  courseCompleted: { type: Boolean, default: false }
 }, {  timestamps: true
 })
 
