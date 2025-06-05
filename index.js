@@ -13,7 +13,11 @@ const Auth = require("./authModel")
 
 const User = require("./userModel")
 
+const cors = require("cors")
+
 const Course = require("./courseModel")
+
+const LessonProgress = require("./lessonProgressModel")
 
 const Enrollment = require("./enrollModel")
 
@@ -26,6 +30,8 @@ const { validateRegistration, authenticateUser } = require("./middleWare")
 const app = express()
 
 app.use(express.json())
+
+app.use(cors())
 
 const PORT = process.env.PORT || 1010
 
@@ -305,6 +311,26 @@ app.get('/all-courses', async (req, res) => {
 })
 
 
+// Route: GET /courses/:courseId — view detailed info for a selected course
+app.get('/courses/:courseId', async (req, res) => {
+  const { courseId } = req.params;
+
+  try {
+    const course = await Course.findById(courseId)
+      .populate('createdBy', 'firstName lastName email') // Show instructor info
+      .select('-__v'); // to exclude __v
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    res.status(200).json({ message: 'Course details fetched successfully', course });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+})
+
+
 // Enroll student in a course
 app.post("/enroll/:courseId", async (req, res) => {
   try {
@@ -424,13 +450,19 @@ app.get('/students/:studentId/enrollments', async (req, res) => {
   const { studentId } = req.params;
 
   try {
-    const enrollments = await Enrollment.find({ student: studentId })
+    const enrollments = await Enrollment.find({ student: req.user._id })
       .populate({
         path: 'course',
         select: 'courseTitle description category thumbnailUrl price isPublished',
-      });
+      })
 
-    const enrolledCourses = enrollments.map(enrollment => enrollment.course);
+    //const enrolledCourses = enrollments.map(enrollment => enrollment.course)
+    const enrolledCourses = enrollments.map(enrollment => ({
+      enrollmentId: enrollment._id,
+      enrolledAt: enrollment.enrolledAt,
+      ...enrollment.course._doc
+}))
+
 
     res.status(200).json({
       message: 'Enrolled courses retrieved successfully',
@@ -446,35 +478,70 @@ app.get('/students/:studentId/enrollments', async (req, res) => {
 })
 
 
-// ✅ Endpoint to check and mark course as completed
-app.post('/api/check-course-completion', async (req, res) => {
-  const { studentId, courseId } = req.body;
+//  Endpoint to check and mark course as completed
+// app.post('/api/check-course-completion', async (req, res) => {
+//   const { studentId, courseId } = req.body;
+
+//   try {
+//     const course = await Course.findById(courseId);
+//     const enrollment = await Enrollment.findOne({ student: studentId, course: courseId });
+
+//     if (!course || !enrollment) {
+//       return res.status(404).json({ message: 'Course or Enrollment not found' });
+//     }
+
+//     const totalLessons = course.lessons.length;
+//     const completedLessons = (studentLessonProgress[studentId]?.[courseId] || []).length;
+
+//     if (completedLessons >= totalLessons) {
+//       enrollment.courseCompleted = true;
+//       await enrollment.save();
+//       return res.status(200).json({ message: 'Course marked as completed.' });
+//     } else {
+//       enrollment.courseCompleted = false;
+//       await enrollment.save();
+//       return res.status(200).json({ message: 'Course not yet completed.' });
+//     }
+
+//   } catch (err) {
+//     return res.status(500).json({ message: 'Server error', error: err.message });
+//   }
+// })
+
+
+// Endpoint to check and mark course as completed through lessonProgressModel
+
+app.post('/update-course-completion-status', async (req, res) => {
+  const { studentId, courseId, lessonTitle, totalLessons } = req.body;
 
   try {
-    const course = await Course.findById(courseId);
-    const enrollment = await Enrollment.findOne({ student: studentId, course: courseId });
+    let progress = await LessonProgress.findOne({ student: studentId, course: courseId });
 
-    if (!course || !enrollment) {
-      return res.status(404).json({ message: 'Course or Enrollment not found' });
-    }
-
-    const totalLessons = course.lessons.length;
-    const completedLessons = (studentLessonProgress[studentId]?.[courseId] || []).length;
-
-    if (completedLessons >= totalLessons) {
-      enrollment.courseCompleted = true;
-      await enrollment.save();
-      return res.status(200).json({ message: 'Course marked as completed.' });
+    if (!progress) {
+      progress = new LessonProgress({
+        student: studentId,
+        course: courseId,
+        completedLessons: [lessonTitle]
+      });
     } else {
-      enrollment.courseCompleted = false;
-      await enrollment.save();
-      return res.status(200).json({ message: 'Course not yet completed.' });
+      if (!progress.completedLessons.includes(lessonTitle)) {
+        progress.completedLessons.push(lessonTitle);
+      }
     }
 
-  } catch (err) {
-    return res.status(500).json({ message: 'Server error', error: err.message });
+    // Auto-set completion if all lessons are completed
+    if (progress.completedLessons.length === totalLessons) {
+      progress.isCourseCompleted = true;
+    }
+
+    await progress.save();
+
+    res.status(200).json({ message: 'Course Progress updated', progress });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 })
+
 
 
 app.get("/all-users", authenticateUser, async (req, res) => {

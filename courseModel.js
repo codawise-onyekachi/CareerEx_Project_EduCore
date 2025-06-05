@@ -12,6 +12,7 @@ const courseSchema = new mongoose.Schema({
   thumbnailUrl: {type: String, default: '' },
   price: {type: Number, default: 0},
   isPublished: {type: Boolean, default: false},
+  courseStarted: {type: Boolean, default: false},
   courseCompleted: { type: Boolean, default: false }
 }, {  timestamps: true
 })
