@@ -1,7 +1,7 @@
 
 const jwt = require('jsonwebtoken')
 //const User = require('../userModel')
-const Auth = require("../authModel")
+const Auth = require("../Models/authModel")
 
 const validateRegistration = (req, res, next) => {
 
